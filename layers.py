@@ -1,8 +1,12 @@
 import torch
+import torch.nn.functional as F
+import numpy as np
+import librosa
 from librosa.filters import mel as librosa_mel_fn
-from audio_processing import dynamic_range_compression
-from audio_processing import dynamic_range_decompression
-from stft import STFT
+from .audio_processing import dynamic_range_compression
+from .audio_processing import dynamic_range_decompression
+from .audio_processing import amplitude_to_db_torch, db_to_amplitude_torch
+from .stft import STFT
 
 
 class LinearNorm(torch.nn.Module):
@@ -40,41 +44,53 @@ class ConvNorm(torch.nn.Module):
 
 
 class TacotronSTFT(torch.nn.Module):
-    def __init__(self, filter_length=1024, hop_length=256, win_length=1024,
-                 n_mel_channels=80, sampling_rate=22050, mel_fmin=0.0,
-                 mel_fmax=None):
-        super(TacotronSTFT, self).__init__()
-        self.n_mel_channels = n_mel_channels
-        self.sampling_rate = sampling_rate
-        self.stft_fn = STFT(filter_length, hop_length, win_length)
-        mel_basis = librosa_mel_fn(
-            sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax)
-        mel_basis = torch.from_numpy(mel_basis).float()
-        self.register_buffer('mel_basis', mel_basis)
+    """
+    ->  adapted from https://github.com/pseeth/pytorch-stft/blob/master/mel_spectrogram.py
+        Example:
+            audio, sr = librosa.load("mixture.mp3", sr=None)
+            audio = Variable(torch.FloatTensor(audio), requires_grad=False).unsqueeze(0)
+            mel_transform = MelSpectrogram(sample_rate=sr, filter_length=1024, num_mels=150)
+            mel_spectrogram = mel_transform(audio).squeeze(0).data.numpy()
+        """
+    def __init__(self, sample_rate=22050, filter_length=1024,
+                 hop_length=256, win_length=None, win_func="hann",
+                 num_mels=80, ref_dB=-30, max_dB=120, preemph=0.95):
+        super().__init__()
+        if win_length is None:
+            win_length = filter_length
+        self.filter_length = filter_length
+        self.hop_length = hop_length
+        self.num_mels = num_mels
+        self.sample_rate = sample_rate  
+        
+        self.stft = STFT(filter_length=self.filter_length, hop_length=self.hop_length,
+                         win_length=win_length, window=win_func)
+        mel_filters = librosa.filters.mel(self.sample_rate, self.filter_length, self.num_mels)
+        self.mel_filter_bank = torch.nn.Parameter(torch.FloatTensor(mel_filters), requires_grad=False)
+
+        self.ref_dB = ref_dB
+        self.max_dB = max_dB
+        self.preemph = preemph
+
+    def _normalize(self, s):
+        return torch.clamp((s + self.ref_dB + self.max_dB) / self.max_dB, min=0.0, max=1.0)
 
     def spectral_normalize(self, magnitudes):
-        output = dynamic_range_compression(magnitudes)
+        output = amplitude_to_db_torch(magnitudes)
         return output
 
-    def spectral_de_normalize(self, magnitudes):
-        output = dynamic_range_decompression(magnitudes)
+    def spectral_de_normalize(self, db):
+        output = db_to_amplitude_torch(db)
         return output
 
-    def mel_spectrogram(self, y):
-        """Computes mel-spectrograms from a batch of waves
-        PARAMS
-        ------
-        y: Variable(torch.FloatTensor) with shape (B, T) in range [-1, 1]
+    def mel_spectrogram(self, input_data):
+        if self.preemph > 0:
+            input_data = torch.cat((input_data[:, :1], input_data[:, 1:] - self.preemph * input_data[:, :-1]), dim=1)
+        magnitude, phase = self.stft.transform(input_data)
+        mel_spectrogram = F.linear(magnitude.transpose(-1, -2), self.mel_filter_bank)
+        mel_spectrogram = self.spectral_normalize(mel_spectrogram)
+        return self._normalize(mel_spectrogram).transpose(-1, -2)
 
-        RETURNS
-        -------
-        mel_output: torch.FloatTensor of shape (B, n_mel_channels, T)
-        """
-        assert(torch.min(y.data) >= -1)
-        assert(torch.max(y.data) <= 1)
-
-        magnitudes, phases = self.stft_fn.transform(y)
-        magnitudes = magnitudes.data
-        mel_output = torch.matmul(self.mel_basis, magnitudes)
-        mel_output = self.spectral_normalize(mel_output)
-        return mel_output
+    def named_parameters(self, memo=None, prefix=''):
+        # no parameters!
+        pass

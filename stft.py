@@ -1,4 +1,6 @@
 """
+# Copy from https://github.com/NVIDIA/tacotron2
+
 BSD 3-Clause License
 
 Copyright (c) 2017, Prem Seetharaman
@@ -36,7 +38,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from scipy.signal import get_window
 from librosa.util import pad_center, tiny
-from audio_processing import window_sumsquare
+from librosa.filters import window_sumsquare
 
 
 class STFT(torch.nn.Module):

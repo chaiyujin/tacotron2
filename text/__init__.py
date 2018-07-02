@@ -1,7 +1,7 @@
 """ from https://github.com/keithito/tacotron """
 import re
-from text import cleaners
-from text.symbols import symbols
+from . import cleaners
+from .symbols import symbols
 
 
 # Mappings from symbol to numeric ID and vice versa:
@@ -38,7 +38,9 @@ def text_to_sequence(text, cleaner_names):
     text = m.group(3)
 
   # Append EOS token
-  sequence.append(_symbol_to_id['~'])
+  # sequence.append(_symbol_to_id['~'])
+  if sequence[-1] != 1:
+    sequence.append(1)
   return sequence
 
 

@@ -91,3 +91,11 @@ def dynamic_range_decompression(x, C=1):
     C: compression factor used to compress
     """
     return torch.exp(x) / C
+
+
+def db_to_amplitude_torch(db):
+    return torch.power(10.0, db * 0.05)
+
+
+def amplitude_to_db_torch(amp):
+    return 10.0 * (torch.log(amp ** 2 + 1e-8) / np.log(10.0))
