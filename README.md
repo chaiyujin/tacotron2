@@ -1,3 +1,6 @@
+# Modification
+This branch is modified, so that nv-tacotron2 can be used in my text2speech framework.
+
 # Tacotron 2 (without wavenet)
 
 Tacotron 2 PyTorch implementation of [Natural TTS Synthesis By Conditioning
