@@ -22,9 +22,9 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
         self.stft = layers.TacotronSTFT(
-            hparams.filter_length, hparams.hop_length, hparams.win_length,
-            hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
-            hparams.mel_fmax)
+            sample_rate=hparams.sampling_rate, filter_length=hparams.filter_length,
+            hop_length=hparams.hop_length, win_length=hparams.filter_length, win_func="hann",
+            num_mels=hparams.n_mel_channels, ref_dB=hparams.ref_dB, max_dB=hparams.max_dB, preemph=hparams.preemph)
         random.seed(1234)
         if shuffle:
             random.shuffle(self.audiopaths_and_text)

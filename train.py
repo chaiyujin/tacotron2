@@ -82,10 +82,10 @@ def load_model(hparams):
         model = batchnorm_to_float(model.half())
         model.decoder.attention_layer.score_mask_value = float(finfo('float16').min)
 
-    if hparams.distributed_run:
-        model = DistributedDataParallel(model)
-    elif torch.cuda.device_count() > 1:
-        model = DataParallel(model)
+    # if hparams.distributed_run:
+    #     model = DistributedDataParallel(model)
+    # elif torch.cuda.device_count() > 1:
+    #     model = DataParallel(model)
 
     return model
 
@@ -131,17 +131,17 @@ def validate(model, criterion, valset, iteration, batch_size, n_gpus,
                                 pin_memory=False, collate_fn=collate_fn)
 
         val_loss = 0.0
-        if distributed_run or torch.cuda.device_count() > 1:
-            batch_parser = model.module.parse_batch
-        else:
-            batch_parser = model.parse_batch
+        # if distributed_run or torch.cuda.device_count() > 1:
+        #     batch_parser = model.module.parse_batch
+        # else:
+        batch_parser = model.parse_batch
 
         for i, batch in enumerate(val_loader):
             x, y = batch_parser(batch)
             y_pred = model(x)
             loss = criterion(y_pred, y)
             reduced_val_loss = reduce_tensor(loss.data, n_gpus)[0] \
-                if distributed_run else loss.data[0]
+                if distributed_run else loss.data.item()
             val_loss += reduced_val_loss
         val_loss = val_loss / (i + 1)
 
@@ -162,6 +162,10 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     rank (int): rank of current gpu
     hparams (object): comma separated list of "name=value" pairs.
     """
+
+    # torch.backends.cudnn.enabled = hparams.cudnn_enabled
+    # torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
+    
     if hparams.distributed_run:
         init_distributed(hparams, n_gpus, rank, group_name)
 
@@ -199,10 +203,10 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
             epoch_offset = max(0, int(iteration / len(train_loader)))
 
     model.train()
-    if hparams.distributed_run or torch.cuda.device_count() > 1:
-        batch_parser = model.module.parse_batch
-    else:
-        batch_parser = model.parse_batch
+    # if hparams.distributed_run or torch.cuda.device_count() > 1:
+    #     batch_parser = model.module.parse_batch
+    # else:
+    batch_parser = model.parse_batch
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
         print("Epoch: {}".format(epoch))
@@ -216,14 +220,14 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
             y_pred = model(x)
             loss = criterion(y_pred, y)
             reduced_loss = reduce_tensor(loss.data, n_gpus)[0] \
-                if hparams.distributed_run else loss.data[0]
+                if hparams.distributed_run else loss.data.item()
 
             if hparams.fp16_run:
                 optimizer.backward(loss)
                 grad_norm = optimizer.clip_fp32_grads(hparams.grad_clip_thresh)
             else:
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm(
+                grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), hparams.grad_clip_thresh)
 
             optimizer.step()
@@ -277,9 +281,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     hparams = create_hparams(args.hparams)
-
-    torch.backends.cudnn.enabled = hparams.cudnn_enabled
-    torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
 
     print("FP16 Run:", hparams.fp16_run)
     print("Dynamic Loss Scaling:", hparams.dynamic_loss_scaling)
